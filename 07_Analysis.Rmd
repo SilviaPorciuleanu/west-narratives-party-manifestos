@@ -1,0 +1,1652 @@
+---
+title: "Manifesto analysis"
+output:
+  github_document:
+    html_preview: false
+---
+
+## Setup and salience over time
+
+```{r section-0, results="asis", message=FALSE, warning=FALSE}
+library(tidyverse)
+library(lme4)
+library(readr)
+library(RColorBrewer)
+library(ggrepel)
+library(geomtextpath)
+library(ggpubr)
+library(tseries) 
+library(lmtest)
+library(plm)
+library(car)
+library(pcse)
+library(fixest)
+library(lfe)
+library(sandwich)
+library(lmtest)
+library(ggstream)
+library(patchwork)
+
+Df_west <- read.csv("Manifestos_West_FULL_171026.csv")
+
+Df_west <- Df_west %>%
+  filter(total_sentences > 30)
+```
+
+
+```{r section-1, results="asis", message=FALSE, warning=FALSE}
+
+
+salience_year <- Df_west %>%
+  group_by(year) %>%
+  summarise(
+    Europe = mean(Western_signifier_pct_total, na.rm = TRUE),
+    West = mean(West_pct_total, na.rm = TRUE),
+    Western_countries = mean(Western_countries_pct_total, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(
+    cols = c(Europe, West, Western_countries),
+    names_to = "Category",
+    values_to = "Percentage"
+  ) %>%
+  mutate(
+    year = as.numeric(as.character(year)),
+    Category = factor(
+      Category,
+      levels = c("Europe", "Western_countries", "West")
+    )
+  )
+
+
+# Smooth each referent category separately
+salience_smooth <- salience_year %>%
+  group_by(Category) %>%
+  arrange(year, .by_group = TRUE) %>%
+  group_modify(~ {
+    model <- loess(
+      Percentage ~ year,
+      data = .x,
+      span = 0.50,
+      degree = 1
+    )
+    
+    tibble(
+      year = seq(min(.x$year), max(.x$year), by = 1),
+      Percentage = predict(
+        model,
+        newdata = data.frame(
+          year = seq(min(.x$year), max(.x$year), by = 1)
+        )
+      )
+    )
+  }) %>%
+  ungroup() %>%
+  mutate(
+    # Prevent negative predicted percentages
+    Percentage = pmax(Percentage, 0)
+  )
+
+# Plot smoothed stacked areas
+p_salience_stacked <- ggplot(
+  salience_smooth,
+  aes(x = year, y = Percentage, fill = Category)
+) +
+  geom_area(alpha = 0.9, color = "white", linewidth = 0.2) +
+  scale_fill_manual(
+    values = c(
+      "Europe" = "#0B3C5D",
+      "Western_countries" = "#328CC1",
+      "West" = "#BFD7EA"
+    ),
+    labels = c(
+      "Europe",
+      "Western countries",
+      "West"
+    )
+  ) +
+  coord_cartesian(ylim = c(0, 7)) +
+  scale_y_continuous(breaks = seq(0, 7, by = 1)) +
+  labs(
+    x = "Year",
+    y = "Mean percentage of manifesto sentences",
+    fill = "",
+    title = "Salience of Western References Over Time"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+p_salience_stacked
+
+ggsave(
+  "salience_through_time.png",
+  plot = p_salience_stacked,
+  width = 7,
+  height = 5.5,
+  dpi = 300
+)
+```
+
+## Country salience
+
+```{r section-2, results="asis", message=FALSE, warning=FALSE}
+# country salience
+
+# Calculate mean salience by country and election year
+country_election <- Df_west %>%
+  group_by(country_code, year) %>%
+  summarise(
+    Europe = mean(Western_signifier_pct_total, na.rm = TRUE),
+    West = mean(West_pct_total, na.rm = TRUE),
+    Western_countries = mean(Western_countries_pct_total, na.rm = TRUE),
+    n_manifestos = n(),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(
+    cols = c(Europe, West, Western_countries),
+    names_to = "Category",
+    values_to = "Percentage"
+  ) %>%
+  mutate(
+    Category = factor(
+      Category,
+      levels = c("Europe", "Western_countries", "West"),
+      labels = c("Europe", "Western countries", "West")
+    )
+  )
+
+# Stacked bars by election year, separately for each country
+p_country_elections <- ggplot(
+  country_election,
+  aes(
+    x = factor(year),
+    y = Percentage,
+    fill = Category
+  )
+) +
+  geom_col(width = 0.95, color = "white", linewidth = 0.2) +
+  facet_wrap(~ country_code, ncol = 4, scales = "free_x") +
+  scale_fill_manual(
+    values = c(
+      "Europe" = "#0B3C5D",
+      "Western countries" = "#328CC1",
+      "West" = "#BFD7EA"
+    )
+  ) +
+  labs(
+    x = "Election year",
+    y = "Mean percentage of manifesto sentences",
+    fill = "",
+    title = "Salience of Western References Across Elections"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    strip.background = element_rect(fill = "grey95"),
+    strip.text = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+p_country_elections
+
+ggsave(
+  "countries_through_time.png",
+  plot = p_country_elections,
+  width = 7,
+  height = 7,
+  dpi = 300
+)
+```
+
+## Self and other references
+
+```{r section-3, results="asis", message=FALSE, warning=FALSE}
+### self other
+
+Df_west <- Df_west %>%
+  mutate(
+    across(
+      c(self_pct_West, other_pct_West,
+        positive_pct_West, negative_pct_West),
+      ~ if_else(coalesce(category_total_West, 0) > 0, .x, NA_real_)
+    ),
+    across(
+      c(self_pct_Western_countries, other_pct_Western_countries,
+        positive_pct_Western_countries, negative_pct_Western_countries),
+      ~ if_else(coalesce(category_total_Western_countries, 0) > 0, .x, NA_real_)
+    ),
+    across(
+      c(self_pct_Western_signifier, other_pct_Western_signifier,
+        positive_pct_Western_signifier, negative_pct_Western_signifier),
+      ~ if_else(coalesce(category_total_Western_signifier, 0) > 0, .x, NA_real_)
+    )
+  )
+
+
+# Self / Other graph
+self_other_plot <- Df_west %>%
+  select(year, self_pct, other_pct) %>%
+  pivot_longer(
+    cols = c(self_pct, other_pct),
+    names_to = "Category",
+    values_to = "Percentage"
+  ) %>%
+  mutate(
+    year = as.numeric(as.character(year)),
+    Category = factor(
+      Category,
+      levels = c("self_pct", "other_pct"),
+      labels = c("Self", "Other")
+    )
+  ) %>%
+  ggplot(aes(x = year, y = Percentage, colour = Category)) +
+  geom_smooth(
+    method = "loess",
+    formula = y ~ x,
+    span = 0.75,
+    se = FALSE,
+    linewidth = 1
+  ) +
+  scale_color_manual(
+    values = c(
+      "Self" = "#1f78b4",
+      "Other" = "#e31a1c"
+    )
+  ) +
+  labs(
+    colour = "",
+    x = "Year",
+    y = "Mean percentage of mentions",
+    title = "Self and other references through time"
+  ) +
+  coord_cartesian(ylim = c(0, 85)) +
+  scale_y_continuous(breaks = seq(0, 100, by = 10)) +
+  theme_bw() +
+  theme(
+    legend.position = "right",
+    panel.grid.minor = element_blank()
+  )
+
+self_other_plot
+
+
+# Positive / Negative graph
+valence_plot <- Df_west %>%
+  select(year, positive_pct, negative_pct) %>%
+  pivot_longer(
+    cols = c(positive_pct, negative_pct),
+    names_to = "Category",
+    values_to = "Percentage"
+  ) %>%
+  mutate(
+    year = as.numeric(as.character(year)),
+    Category = factor(
+      Category,
+      levels = c("positive_pct", "negative_pct"),
+      labels = c("Positive", "Negative")
+    )
+  ) %>%
+  ggplot(aes(x = year, y = Percentage, colour = Category)) +
+  geom_smooth(
+    method = "loess",
+    formula = y ~ x,
+    span = 0.75,
+    se = FALSE,
+    linewidth = 1
+  ) +
+  scale_color_manual(
+    values = c(
+      "Positive" = "#33a02c",
+      "Negative" = "#6a3d9a"
+    )
+  ) +
+  labs(
+    colour = "",
+    x = "Year",
+    y = "Mean percentage of mentions",
+    title = "Positive and negative references through time"
+  ) +
+  coord_cartesian(ylim = c(0, 85)) +
+  scale_y_continuous(breaks = seq(0, 100, by = 10)) +
+  theme_bw() +
+  theme(
+    legend.position = "right",
+    panel.grid.minor = element_blank()
+  )
+
+valence_plot
+
+# Combine plots
+combined_plot <- self_other_plot + valence_plot +
+  plot_layout(ncol = 2)
+
+# Display
+combined_plot
+
+# Save for Overleaf
+ggsave(
+  "self_other_valence.png",
+  plot = combined_plot,
+  width = 10,
+  height = 4,
+  dpi = 300
+)
+```
+
+## References by category
+
+```{r section-4, results="asis", message=FALSE, warning=FALSE}
+# by category 
+
+self_other_by_term <- Df_west %>%
+  select(
+    year,
+    self_pct_West, other_pct_West,
+    self_pct_Western_countries, other_pct_Western_countries,
+    self_pct_Western_signifier, other_pct_Western_signifier
+  ) %>%
+  pivot_longer(
+    cols = -year,
+    names_to = c("Narrative", "Referent"),
+    names_pattern = "(self|other)_pct_(.*)",
+    values_to = "Percentage"
+  ) %>%
+  mutate(
+    year = as.numeric(as.character(year)),
+    Referent = dplyr::recode(
+      Referent,
+  "Western_signifier" = "Europe",
+  "West" = "West",
+  "Western_countries" = "Western countries"
+),
+    Referent = factor(
+      Referent,
+      levels = c("Europe", "West", "Western countries")
+    ),
+    Narrative = factor(
+      Narrative,
+      levels = c("self", "other"),
+      labels = c("Self", "Other")
+    )
+  )
+
+p_self_other <- ggplot(
+  self_other_by_term,
+  aes(x = year, y = Percentage, color = Narrative)
+) +
+  geom_smooth(
+    method = "loess",
+    formula = y ~ x,
+    span = 0.75,
+    se = FALSE,
+    linewidth = 1
+  ) +
+  facet_wrap(~ Referent, nrow = 1) +
+  scale_color_manual(
+    values = c(
+      "Self" = "#1f78b4",
+      "Other" = "#e31a1c"
+    )
+  ) +
+  coord_cartesian(ylim = c(0, 100)) +
+  scale_y_continuous(breaks = seq(0, 100, 20)) +
+  labs(
+    x = "Year",
+    y = "Percentage of mentions",
+    color = "",
+    title = "Self and Other Narratives by Referent"
+  ) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "grey95", color = "grey80"),
+    strip.text = element_text(face = "bold")
+  )
+
+p_self_other
+
+valence_by_term <- Df_west %>%
+  select(
+    year,
+    positive_pct_West, negative_pct_West,
+    positive_pct_Western_countries, negative_pct_Western_countries,
+    positive_pct_Western_signifier, negative_pct_Western_signifier
+  ) %>%
+  pivot_longer(
+    cols = -year,
+    names_to = c("Valence", "Referent"),
+    names_pattern = "(positive|negative)_pct_(.*)",
+    values_to = "Percentage"
+  ) %>%
+  mutate(
+    year = as.numeric(as.character(year)),
+    Referent = dplyr::recode(
+  Referent,
+  "Western_signifier" = "Europe",
+  "West" = "West",
+  "Western_countries" = "Western countries"
+),
+    Referent = factor(
+      Referent,
+      levels = c("Europe", "West", "Western countries")
+    ),
+    Valence = factor(
+      Valence,
+      levels = c("positive", "negative"),
+      labels = c("Positive", "Negative")
+    )
+  )
+
+p_valence <- ggplot(
+  valence_by_term,
+  aes(x = year, y = Percentage, color = Valence)
+) +
+  geom_smooth(
+    method = "loess",
+    formula = y ~ x,
+    span = 0.75,
+    se = FALSE,
+    linewidth = 1
+  ) +
+  facet_wrap(~ Referent, nrow = 1) +
+  scale_color_manual(
+    values = c(
+      "Positive" = "#33a02c",
+      "Negative" = "#6a3d9a"
+    )
+  ) +
+  coord_cartesian(ylim = c(0, 100)) +
+  scale_y_continuous(breaks = seq(0, 100, 20)) +
+  labs(
+    x = "Year",
+    y = "Percentage of mentions",
+    color = "",
+    title = "Positive and Negative Narratives by Referent"
+  ) +
+  theme_bw() +
+  theme(strip.background = element_rect(fill = "grey95", color = "grey80"),
+  strip.text = element_text(face = "bold"))
+
+p_valence
+
+combined_narratives <- p_self_other / p_valence
+
+combined_narratives
+
+ggsave(
+  "narratives_by_referent.png",
+  combined_narratives,
+  width = 12,
+  height = 7,
+  dpi = 300
+)
+```
+
+## Combined narratives
+
+```{r section-5, results="asis", message=FALSE, warning=FALSE}
+#self_positive 
+
+# Colors for combined narratives
+narrative_colors <- c(
+  "Self + Positive"  = "#009E73",
+  "Self + Negative"  = "#CC79A7",
+  "Other + Positive" = "#0072B2",
+  "Other + Negative" = "#D55E00"
+)
+
+combined_long <- Df_west %>%
+  select(
+    year,
+    self_positive_pct,
+    self_negative_pct,
+    other_positive_pct,
+    other_negative_pct
+  ) %>%
+  pivot_longer(
+    cols = -year,
+    names_to = "Narrative",
+    values_to = "Percentage"
+  ) %>%
+  mutate(
+    year = as.numeric(as.character(year)),
+    Narrative = factor(
+      Narrative,
+      levels = c(
+        "self_positive_pct",
+        "self_negative_pct",
+        "other_positive_pct",
+        "other_negative_pct"
+      ),
+      labels = c(
+        "Self + Positive",
+        "Self + Negative",
+        "Other + Positive",
+        "Other + Negative"
+      )
+    )
+  ) %>%
+  filter(is.finite(Percentage))
+
+# Plot
+p_combined <- ggplot(
+  combined_long,
+  aes(x = year, y = Percentage, color = Narrative)
+) +
+  geom_smooth(
+    method = "loess",
+    formula = y ~ x,
+    span = 0.75,
+    se = FALSE,
+    linewidth = 1
+  ) +
+  scale_color_manual(values = narrative_colors) +
+  coord_cartesian(ylim = c(0, 70)) +
+  scale_y_continuous(breaks = seq(0, 100, 10)) +
+  labs(
+    x = "Year",
+    y = "Percentage of mentions",
+    color = "",
+    title = "Narratives Through Time"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+p_combined
+
+combined_by_referent <- Df_west %>%
+  select(
+    year,
+    matches(
+      "^(self_positive|self_negative|other_positive|other_negative)_pct_(West|Western_countries|Western_signifier)$"
+    )
+  ) %>%
+  pivot_longer(
+    cols = -year,
+    names_to = c("Narrative", "Referent"),
+    names_pattern = "(self_positive|self_negative|other_positive|other_negative)_pct_(.*)",
+    values_to = "Percentage"
+  ) %>%
+  mutate(
+    year = as.numeric(as.character(year)),
+    
+    Referent = dplyr::recode(
+  Referent,
+  "Western_signifier" = "Europe",
+  "West" = "West",
+  "Western_countries" = "Western countries"
+),
+    
+    Referent = factor(
+      Referent,
+      levels = c("Europe", "West", "Western countries")
+    ),
+    
+    Narrative = factor(
+      Narrative,
+      levels = c(
+        "self_positive",
+        "self_negative",
+        "other_positive",
+        "other_negative"
+      ),
+      labels = c(
+        "Self + Positive",
+        "Self + Negative",
+        "Other + Positive",
+        "Other + Negative"
+      )
+    )
+  ) %>%
+  filter(is.finite(Percentage))
+
+# Plot
+p_combined_referent <- ggplot(
+  combined_by_referent,
+  aes(x = year, y = Percentage, color = Narrative)
+) +
+  geom_smooth(
+    method = "loess",
+    formula = y ~ x,
+    span = 0.9,
+    se = FALSE,
+    linewidth = 1
+  ) +
+  facet_wrap(~ Referent, nrow = 1) +
+  scale_color_manual(values = narrative_colors) +
+  coord_cartesian(ylim = c(0, 100)) +
+  scale_y_continuous(breaks = seq(0, 100, 20)) +
+  labs(
+    x = "Year",
+    y = "Percentage of mentions",
+    color = "",
+    title = "Narratives by term"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    strip.background = element_rect(
+      fill = "grey95",
+      color = "grey80"
+    ),
+    strip.text = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+
+p_combined_referent
+
+ggsave(
+  "combined_narratives.png",
+  plot = p_combined,
+  width = 6,
+  height = 5,
+  dpi = 300
+)
+
+ggsave(
+  "combined_narratives_by_referent.png",
+  plot = p_combined_referent,
+  width = 12,
+  height = 4.5,
+  dpi = 300
+)
+```
+
+## Salience regressions
+
+```{r section-6, results="asis", message=FALSE, warning=FALSE}
+# Regressions Salience
+
+# Models 1–2: No fixed effects
+m1 <- feols(
+  total_west_pct ~ EU_years + gal_tan + economic_lr,
+  data = Df_west,
+  vcov = ~ party
+)
+
+m2 <- feols(
+  total_west_pct ~ NATO_years + gal_tan + economic_lr,
+  data = Df_west,
+  vcov = ~ party
+)
+
+# Models 3–4: Country fixed effects
+m3 <- feols(
+  total_west_pct ~ EU_years + gal_tan + economic_lr | country_code,
+  data = Df_west,
+  vcov = ~ party
+)
+
+m4 <- feols(
+  total_west_pct ~ NATO_years + gal_tan + economic_lr | country_code,
+  data = Df_west,
+  vcov = ~ party
+)
+
+# Models 5–6: Country and year fixed effects
+m5 <- feols(
+  total_west_pct ~ EU_years + gal_tan + economic_lr |
+    country_code + year,
+  data = Df_west,
+  vcov = ~ party
+)
+
+m6 <- feols(
+  total_west_pct ~ NATO_years + gal_tan + economic_lr |
+    country_code + year,
+  data = Df_west,
+  vcov = ~ party
+)
+
+knitr::kable(etable(
+  m3, m4, m5, m6,
+
+  digits = 3,
+  digits.stats = 3,
+
+  title = "Salience of references to the West, Europe or Western countries",
+
+  # Only four model columns
+  headers = c(
+    "EU", "NATO", "EU", "NATO"
+  ),
+  
+  dict = c(
+    EU_years = "Years since EU accession",
+    NATO_years = "Years since NATO accession",
+    gal_tan = "Cultural GAL--TAN",
+    economic_lr = "Economic left--right",
+    country_code = "Country",
+    year = "Year"
+  ),
+  
+  order = c(
+    "Years since EU",
+    "Years since NATO",
+    "Cultural",
+    "Economic"
+  ),
+  
+  signif.code = c(
+    "***" = 0.001,
+    "**" = 0.01,
+    "*" = 0.05
+  ),
+  
+  fitstat = ~ n + r2 + wr2
+), format = "pipe")
+
+# Compare all six models (EU and NATO)
+knitr::kable(etable(
+  m1, m2, m3, m4, m5, m6,
+  digits = 3,
+  dict = c(
+    EU_years = "Years since EU accession",
+    NATO_years = "Years since NATO accession",
+    gal_tan = "Cultural GAL–TAN",
+    economic_lr = "Economic left–right"
+  )
+), format = "pipe")
+```
+
+## Salience by referent
+
+```{r section-7, results="asis", message=FALSE, warning=FALSE}
+# By term
+
+# Dependent variables
+outcomes <- c(
+  "West_pct_total",
+  "Western_signifier_pct_total",
+  "Western_countries_pct_total"
+)
+
+# Function to estimate six models per outcome
+run_models <- function(y) {
+  
+  list(
+    # EU models
+    EU_noFE = feols(
+      as.formula(paste(y, "~ EU_years + gal_tan + economic_lr")),
+      data = Df_west,
+      vcov = ~ party
+    ),
+    
+    EU_countryFE = feols(
+      as.formula(paste(y, "~ EU_years + gal_tan + economic_lr | country_code")),
+      data = Df_west,
+      vcov = ~ party
+    ),
+    
+    EU_country_yearFE = feols(
+      as.formula(paste(y, "~ EU_years + gal_tan + economic_lr | country_code + year")),
+      data = Df_west,
+      vcov = ~ party
+    ),
+    
+    # NATO models
+    NATO_noFE = feols(
+      as.formula(paste(y, "~ NATO_years + gal_tan + economic_lr")),
+      data = Df_west,
+      vcov = ~ party
+    ),
+    
+    NATO_countryFE = feols(
+      as.formula(paste(y, "~ NATO_years + gal_tan + economic_lr | country_code")),
+      data = Df_west,
+      vcov = ~ party
+    ),
+    
+    NATO_country_yearFE = feols(
+      as.formula(paste(y, "~ NATO_years + gal_tan + economic_lr | country_code + year")),
+      data = Df_west,
+      vcov = ~ party
+    )
+  )
+}
+
+# Run all models
+models_by_outcome <- lapply(outcomes, run_models)
+
+names(models_by_outcome) <- c(
+  "West",
+  "Europe",
+  "Western_countries"
+)
+
+# West
+knitr::kable(etable(
+  models_by_outcome$West,
+  digits = 3
+), format = "pipe")
+
+# Europe
+knitr::kable(etable(
+  models_by_outcome$Europe,
+  digits = 3
+), format = "pipe")
+
+# Western countries
+knitr::kable(etable(
+  models_by_outcome$Western_countries,
+  digits = 3
+), format = "pipe")
+
+# Export the three salience regression tables
+
+table_titles <- c(
+  West = "Salience of references to the West",
+  Europe = "Salience of references to Europe",
+  Western_countries = "Salience of references to Western countries"
+)
+
+for (outcome in names(models_by_outcome)) {
+  
+  models <- models_by_outcome[[outcome]]
+  
+  # Format regression table
+  latex <- knitr::kable(etable(
+    models$EU_countryFE,
+    models$NATO_countryFE,
+    models$EU_country_yearFE,
+    models$NATO_country_yearFE,
+
+    depvar = FALSE,
+    digits = 3,
+    digits.stats = 3,
+    
+    title = unname(table_titles[[outcome]]),
+    
+    headers = c("EU", "NATO", "EU", "NATO"),
+    
+    dict = c(
+      EU_years = "Years since EU accession",
+      NATO_years = "Years since NATO accession",
+      gal_tan = "Cultural GAL--TAN",
+      economic_lr = "Economic left--right",
+      country_code = "Country",
+      year = "Year"
+    ),
+    
+    order = c(
+      "Years since EU",
+      "Years since NATO",
+      "Cultural",
+      "Economic"
+    ),
+    
+    signif.code = c(
+      "***" = 0.001,
+      "**" = 0.01,
+      "*" = 0.05
+    ),
+    
+    fitstat = ~ n + r2 + wr2
+  ), format = "pipe")
+  
+  # Display the table
+  cat("\n", latex, "\n\n", sep = "\n")
+}
+```
+
+## Narrative regressions
+
+```{r section-8, results="asis", message=FALSE, warning=FALSE}
+# Narratives
+outcomes <- c(
+  # Salience
+  "West_pct_total",
+  "Western_signifier_pct_total",
+  "Western_countries_pct_total",
+  
+  # Combined narratives - overall
+  "self_positive_pct",
+  "self_negative_pct",
+  "other_positive_pct",
+  "other_negative_pct",
+  
+  # Combined narratives - West
+  "self_positive_pct_West",
+  "self_negative_pct_West",
+  "other_positive_pct_West",
+  "other_negative_pct_West",
+  
+  # Combined narratives - Europe
+  "self_positive_pct_Western_signifier",
+  "self_negative_pct_Western_signifier",
+  "other_positive_pct_Western_signifier",
+  "other_negative_pct_Western_signifier",
+  
+  # Combined narratives - Western countries
+  "self_positive_pct_Western_countries",
+  "self_negative_pct_Western_countries",
+  "other_positive_pct_Western_countries",
+  "other_negative_pct_Western_countries"
+)
+
+run_models <- function(y) {
+  
+  list(
+    EU_noFE = feols(
+      as.formula(paste(y, "~ EU_years + gal_tan + economic_lr")),
+      data = Df_west,
+      vcov = ~ party
+    ),
+    
+    EU_countryFE = feols(
+      as.formula(paste(
+        y, "~ EU_years + gal_tan + economic_lr | country_code"
+      )),
+      data = Df_west,
+      vcov = ~ party
+    ),
+    
+    EU_country_yearFE = feols(
+      as.formula(paste(
+        y, "~ EU_years + gal_tan + economic_lr | country_code + year"
+      )),
+      data = Df_west,
+      vcov = ~ party
+    ),
+    
+    NATO_noFE = feols(
+      as.formula(paste(y, "~ NATO_years + gal_tan + economic_lr")),
+      data = Df_west,
+      vcov = ~ party
+    ),
+    
+    NATO_countryFE = feols(
+      as.formula(paste(
+        y, "~ NATO_years + gal_tan + economic_lr | country_code"
+      )),
+      data = Df_west,
+      vcov = ~ party
+    ),
+    
+    NATO_country_yearFE = feols(
+      as.formula(paste(
+        y, "~ NATO_years + gal_tan + economic_lr | country_code + year"
+      )),
+      data = Df_west,
+      vcov = ~ party
+    )
+  )
+}
+
+# Estimate all models
+models_by_outcome <- lapply(outcomes, run_models)
+names(models_by_outcome) <- outcomes
+
+knitr::kable(do.call(etable, models_by_outcome[["self_positive_pct"]]), format = "pipe")
+knitr::kable(do.call(etable, models_by_outcome[["self_negative_pct"]]), format = "pipe")
+knitr::kable(do.call(etable, models_by_outcome[["other_positive_pct"]]), format = "pipe")
+knitr::kable(do.call(etable, models_by_outcome[["other_negative_pct"]]), format = "pipe")
+
+knitr::kable(do.call(etable, models_by_outcome[["self_positive_pct_West"]]), format = "pipe")
+knitr::kable(do.call(etable, models_by_outcome[["self_negative_pct_West"]]), format = "pipe")
+knitr::kable(do.call(etable, models_by_outcome[["other_positive_pct_West"]]), format = "pipe")
+knitr::kable(do.call(etable, models_by_outcome[["other_negative_pct_West"]]), format = "pipe")
+
+latex_overall <- knitr::kable(etable(
+  # Self + Positive
+  models_by_outcome[["self_positive_pct"]]$EU_countryFE,
+  models_by_outcome[["self_positive_pct"]]$NATO_countryFE,
+  
+  # Self + Negative
+  models_by_outcome[["self_negative_pct"]]$EU_countryFE,
+  models_by_outcome[["self_negative_pct"]]$NATO_countryFE,
+  
+  # Other + Positive
+  models_by_outcome[["other_positive_pct"]]$EU_countryFE,
+  models_by_outcome[["other_positive_pct"]]$NATO_countryFE,
+  
+  # Other + Negative
+  models_by_outcome[["other_negative_pct"]]$EU_countryFE,
+  models_by_outcome[["other_negative_pct"]]$NATO_countryFE,
+
+  depvar = FALSE,
+  digits = 3,
+  digits.stats = 3,
+  
+  title = "Self and Other Narratives of the West",
+
+  headers = list(
+    "Narrative" = c(
+      "Self + Positive" = 2,
+      "Self + Negative" = 2,
+      "Other + Positive" = 2,
+      "Other + Negative" = 2
+    ),
+    "Integration" = rep(c("EU", "NATO"), 4)
+  ),
+  
+  dict = c(
+    EU_years = "Years since EU accession",
+    NATO_years = "Years since NATO accession",
+    gal_tan = "Cultural GAL--TAN",
+    economic_lr = "Economic left--right",
+    country_code = "Country"
+  ),
+  
+  order = c(
+    "Years since EU",
+    "Years since NATO",
+    "Cultural",
+    "Economic"
+  ),
+  
+  signif.code = c(
+    "***" = 0.001,
+    "**" = 0.01,
+    "*" = 0.05
+  ),
+  
+  fitstat = ~ n + r2 + wr2
+), format = "pipe")
+
+# Display the table
+cat("\n", latex_overall, "\n\n", sep = "\n")
+
+# Year FE 
+latex_narratives_yearFE <- knitr::kable(etable(
+  # Self + Positive
+  models_by_outcome[["self_positive_pct"]]$EU_country_yearFE,
+  models_by_outcome[["self_positive_pct"]]$NATO_country_yearFE,
+  
+  # Self + Negative
+  models_by_outcome[["self_negative_pct"]]$EU_country_yearFE,
+  models_by_outcome[["self_negative_pct"]]$NATO_country_yearFE,
+  
+  # Other + Positive
+  models_by_outcome[["other_positive_pct"]]$EU_country_yearFE,
+  models_by_outcome[["other_positive_pct"]]$NATO_country_yearFE,
+  
+  # Other + Negative
+  models_by_outcome[["other_negative_pct"]]$EU_country_yearFE,
+  models_by_outcome[["other_negative_pct"]]$NATO_country_yearFE,
+
+  depvar = FALSE,
+  digits = 3,
+  digits.stats = 3,
+  
+  title = "Self and Other Narratives of the West: Country and Year Fixed Effects",
+
+  headers = list(
+    "Narrative" = c(
+      "Self + Positive" = 2,
+      "Self + Negative" = 2,
+      "Other + Positive" = 2,
+      "Other + Negative" = 2
+    ),
+    "Integration" = rep(c("EU", "NATO"), 4)
+  ),
+  
+  dict = c(
+    EU_years = "Years since EU accession",
+    NATO_years = "Years since NATO accession",
+    gal_tan = "Cultural GAL--TAN",
+    economic_lr = "Economic left--right",
+    country_code = "Country",
+    year = "Year"
+  ),
+  
+  order = c(
+    "Years since EU",
+    "Years since NATO",
+    "Cultural",
+    "Economic"
+  ),
+  
+  signif.code = c(
+    "***" = 0.001,
+    "**" = 0.01,
+    "*" = 0.05
+  ),
+  
+  fitstat = ~ n + r2 + wr2
+), format = "pipe")
+
+# Display the table
+cat("\n", latex_narratives_yearFE, "\n\n", sep = "\n")
+```
+
+## Regressions by referent
+
+```{r section-9, results="asis", message=FALSE, warning=FALSE}
+# Referent categories and their corresponding variable suffixes
+referents <- c(
+  Europe = "Western_signifier",
+  West = "West",
+  Western_countries = "Western_countries"
+)
+
+narratives <- c(
+  "self_positive",
+  "self_negative",
+  "other_positive",
+  "other_negative"
+)
+
+
+referents <- c(
+  Europe = "Western_signifier",
+  West = "West",
+  Western_countries = "Western_countries"
+)
+
+for (ref in names(referents)) {
+  
+  suffix <- referents[[ref]]
+  
+  # Retrieve already estimated models
+  sp <- models_by_outcome[[paste0("self_positive_pct_", suffix)]]
+  sn <- models_by_outcome[[paste0("self_negative_pct_", suffix)]]
+  op <- models_by_outcome[[paste0("other_positive_pct_", suffix)]]
+  on <- models_by_outcome[[paste0("other_negative_pct_", suffix)]]
+  
+  latex <- knitr::kable(etable(
+    sp$EU_countryFE,
+    sp$NATO_countryFE,
+    
+    sn$EU_countryFE,
+    sn$NATO_countryFE,
+    
+    op$EU_countryFE,
+    op$NATO_countryFE,
+    
+    on$EU_countryFE,
+    on$NATO_countryFE,
+
+    depvar = FALSE,
+    digits = 3,
+    digits.stats = 3,
+    
+    title = paste0(
+      "Self and Other Narratives of ",
+      gsub("_", " ", ref)
+    ),
+    
+    headers = list(
+      "Narrative" = c(
+        "Self + Positive" = 2,
+        "Self + Negative" = 2,
+        "Other + Positive" = 2,
+        "Other + Negative" = 2
+      ),
+      "Integration" = rep(c("EU", "NATO"), 4)
+    ),
+    
+    dict = c(
+      EU_years = "Years since EU accession",
+      NATO_years = "Years since NATO accession",
+      gal_tan = "Cultural GAL--TAN",
+      economic_lr = "Economic left--right",
+      country_code = "Country"
+    ),
+    
+    order = c(
+      "Years since EU",
+      "Years since NATO",
+      "Cultural",
+      "Economic"
+    ),
+    
+    signif.code = c(
+      "***" = 0.001,
+      "**" = 0.01,
+      "*" = 0.05
+    ),
+    
+    fitstat = ~ n + r2 + wr2
+  ), format = "pipe")
+  
+  cat("\n", latex, "\n\n", sep = "\n")
+}
+```
+
+## Coefficient plots
+
+```{r section-10, results="asis", message=FALSE, warning=FALSE}
+library(broom)
+
+referents <- c(
+  Europe = "Western_signifier",
+  West = "West",
+  "Western countries" = "Western_countries"
+)
+
+narratives <- c(
+  "Self + Positive" = "self_positive",
+  "Self + Negative" = "self_negative",
+  "Other + Positive" = "other_positive",
+  "Other + Negative" = "other_negative"
+)
+
+
+# Extract existing country-FE coefficients
+coef_integration <- list()
+
+for (ref in names(referents)) {
+  for (narr in names(narratives)) {
+    
+    y <- paste0(
+      narratives[[narr]], "_pct_", referents[[ref]]
+    )
+    
+    for (integration in c("EU", "NATO")) {
+      
+      model <- models_by_outcome[[y]][[
+        paste0(integration, "_countryFE")
+      ]]
+      
+      coef_integration[[length(coef_integration) + 1]] <-
+        tidy(model, conf.int = TRUE) %>%
+        filter(term %in% c("EU_years", "NATO_years")) %>%
+        mutate(
+          referent = ref,
+          narrative = narr,
+          integration = integration
+        )
+    }
+  }
+}
+
+coef_integration <- bind_rows(coef_integration) %>%
+  mutate(
+    referent = factor(
+      referent,
+      levels = c("Western countries", "Europe", "West")
+    ),
+    narrative = factor(
+      narrative,
+      levels = names(narratives)
+    )
+  )
+
+p_integration <- ggplot(
+  coef_integration,
+  aes(x = estimate, y = referent)
+) +
+  geom_vline(
+    xintercept = 0,
+    linetype = "dashed",
+    color = "grey60"
+  ) +
+  geom_errorbar(
+    aes(xmin = conf.low, xmax = conf.high),
+    orientation = "y",
+    width = 0.15,
+    color = "#328CC1"
+  ) +
+  geom_point(size = 2.5, color = "#0B3C5D") +
+  facet_grid(narrative ~ integration, scales = "free_x") +
+  labs(
+    x = "Percentage of mentions",
+    y = NULL
+  ) +
+  theme_bw(base_size = 11) +
+  theme(
+    strip.background = element_rect(fill = "grey95"),
+    strip.text = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+
+p_integration
+
+
+ggsave(
+  "integration_coefficients.png",
+  p_integration,
+  width = 8,
+  height = 8
+)
+
+models_ideology <- list()
+
+for (ref in names(referents)) {
+  for (narr in names(narratives)) {
+    
+    y <- paste0(
+      narratives[[narr]], "_pct_", referents[[ref]]
+    )
+    
+    models_ideology[[y]] <- feols(
+      as.formula(
+        paste(
+          y,
+          "~ gal_tan + economic_lr | country_code + year"
+        )
+      ),
+      data = Df_west,
+      vcov = ~ party
+    )
+  }
+}
+
+coef_ideology <- list()
+
+for (ref in names(referents)) {
+  for (narr in names(narratives)) {
+    
+    y <- paste0(
+      narratives[[narr]], "_pct_", referents[[ref]]
+    )
+    
+    coef_ideology[[length(coef_ideology) + 1]] <-
+      tidy(models_ideology[[y]], conf.int = TRUE) %>%
+      filter(term %in% c("gal_tan", "economic_lr")) %>%
+      mutate(
+        referent = ref,
+        narrative = narr
+      )
+  }
+}
+
+coef_ideology <- bind_rows(coef_ideology) %>%
+  mutate(
+    referent = factor(
+      referent,
+      levels = c("Western countries", "Europe", "West")
+    ),
+    narrative = factor(
+      narrative,
+      levels = names(narratives)
+    ),
+    ideology = dplyr::recode(
+      term,
+      gal_tan = "Cultural GAL–TAN",
+      economic_lr = "Economic left–right"
+    )
+  )
+
+p_ideology <- ggplot(
+  coef_ideology,
+  aes(x = estimate, y = referent)
+) +
+  geom_vline(
+    xintercept = 0,
+    linetype = "dashed",
+    color = "grey60"
+  ) +
+  geom_errorbar(
+    aes(xmin = conf.low, xmax = conf.high),
+    orientation = "y",
+    width = 0.15,
+    color = "#328CC1"
+  ) +
+  geom_point(size = 2.5, color = "#0B3C5D") +
+  facet_grid(narrative ~ ideology, scales = "free_x") +
+  labs(
+    x = "Percentage of mentions",
+    y = NULL
+  ) +
+  theme_bw(base_size = 11) +
+  theme(
+    strip.background = element_rect(fill = "grey95"),
+    strip.text = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+
+p_ideology
+
+ggsave(
+  "ideology_coefficients.png",
+  p_ideology,
+  width = 8,
+  height = 8
+)
+```
+
+## Ideology regression tables
+
+```{r section-11, results="asis", message=FALSE, warning=FALSE}
+# tables for appendix of the graphs on ideology
+
+referents <- c(
+  West = "West",
+  Europe = "Western_signifier",
+  Western_countries = "Western_countries"
+)
+
+table_titles <- c(
+  West = "Party Ideology and Narratives of the West",
+  Europe = "Party Ideology and Narratives of Europe",
+  Western_countries = "Party Ideology and Narratives of Western Countries"
+)
+
+for (ref in names(referents)) {
+  
+  suffix <- referents[[ref]]
+  
+  sp <- models_ideology[[paste0("self_positive_pct_", suffix)]]
+  sn <- models_ideology[[paste0("self_negative_pct_", suffix)]]
+  op <- models_ideology[[paste0("other_positive_pct_", suffix)]]
+  on <- models_ideology[[paste0("other_negative_pct_", suffix)]]
+  
+  latex <- knitr::kable(etable(
+    sp, sn, op, on,
+
+    depvar = FALSE,
+    digits = 3,
+    digits.stats = 3,
+    
+    title = unname(table_titles[[ref]]),
+    label = paste0("tab:ideology_", tolower(ref)),
+    
+    headers = c(
+      "Self + Positive",
+      "Self + Negative",
+      "Other + Positive",
+      "Other + Negative"
+    ),
+    
+    dict = c(
+      gal_tan = "Cultural GAL--TAN",
+      economic_lr = "Economic left--right",
+      country_code = "Country FE",
+      year = "Year FE"
+    ),
+
+    signif.code = c(
+      "***" = 0.001,
+      "**" = 0.01,
+      "*" = 0.05
+    ),
+    
+    fitstat = ~ n + r2 + wr2,
+    
+    notes = c(
+      "Standard errors clustered by party in parentheses.",
+      "*** $p<0.001$, ** $p<0.01$, * $p<0.05$."
+    )
+  ), format = "pipe")
+  
+  # Display the table
+  cat("\n", latex, "\n\n", sep = "\n")
+}
+```
+
+## Overall ideology regressions
+
+```{r section-12, results="asis", message=FALSE, warning=FALSE}
+# Aggregated narratives across all Western referents
+overall_narratives <- c(
+  "self_positive_pct",
+  "self_negative_pct",
+  "other_positive_pct",
+  "other_negative_pct"
+)
+
+models_ideology_overall <- lapply(overall_narratives, function(y) {
+  feols(
+    as.formula(
+      paste(y, "~ gal_tan + economic_lr | country_code + year")
+    ),
+    data = Df_west,
+    vcov = ~ party
+  )
+})
+
+names(models_ideology_overall) <- overall_narratives
+
+latex_overall <- knitr::kable(etable(
+  models_ideology_overall[["self_positive_pct"]],
+  models_ideology_overall[["self_negative_pct"]],
+  models_ideology_overall[["other_positive_pct"]],
+  models_ideology_overall[["other_negative_pct"]],
+
+  depvar = FALSE,
+  digits = 3,
+  digits.stats = 3,
+  
+  title = "Party Ideology and Narratives of Western Actors",
+
+  headers = c(
+    "Self + Positive",
+    "Self + Negative",
+    "Other + Positive",
+    "Other + Negative"
+  ),
+  
+  dict = c(
+    gal_tan = "Cultural GAL--TAN",
+    economic_lr = "Economic left--right",
+    country_code = "Country FE",
+    year = "Year FE"
+  ),
+
+  signif.code = c(
+    "***" = 0.001,
+    "**" = 0.01,
+    "*" = 0.05
+  ),
+  
+  fitstat = ~ n + r2 + wr2
+), format = "pipe")
+
+cat("\n", latex_overall, "\n\n", sep = "\n")
+```
+
+## Alternative ideology measures
+
+```{r section-13, results="asis", message=FALSE, warning=FALSE}
+# With Parlgov
+
+# Outcomes grouped by referent
+ideology_outcomes <- list(
+  Overall = c(
+    "self_positive_pct",
+    "self_negative_pct",
+    "other_positive_pct",
+    "other_negative_pct"
+  ),
+  
+  West = c(
+    "self_positive_pct_West",
+    "self_negative_pct_West",
+    "other_positive_pct_West",
+    "other_negative_pct_West"
+  ),
+  
+  Europe = c(
+    "self_positive_pct_Western_signifier",
+    "self_negative_pct_Western_signifier",
+    "other_positive_pct_Western_signifier",
+    "other_negative_pct_Western_signifier"
+  ),
+  
+  Western_countries = c(
+    "self_positive_pct_Western_countries",
+    "self_negative_pct_Western_countries",
+    "other_positive_pct_Western_countries",
+    "other_negative_pct_Western_countries"
+  )
+)
+
+# Estimate models using ParlGov ideology
+models_ideology_parlgov <- lapply(
+  ideology_outcomes,
+  function(outcomes) {
+    models <- lapply(outcomes, function(y) {
+      feols(
+        as.formula(
+          paste(y, "~ galtan + lrecon | country_code + year")
+        ),
+        data = Df_west,
+        vcov = ~ party
+      )
+    })
+    
+    names(models) <- c(
+      "Self_Positive",
+      "Self_Negative",
+      "Other_Positive",
+      "Other_Negative"
+    )
+    
+    models
+  }
+)
+
+table_titles <- c(
+  Overall = "Party Ideology and Narratives of Western Actors",
+  West = "Party Ideology and Narratives of the West",
+  Europe = "Party Ideology and Narratives of Europe",
+  Western_countries = "Party Ideology and Narratives of Western Countries"
+)
+
+for (ref in names(models_ideology_parlgov)) {
+  
+  models <- models_ideology_parlgov[[ref]]
+  
+  latex <- knitr::kable(etable(
+    models$Self_Positive,
+    models$Self_Negative,
+    models$Other_Positive,
+    models$Other_Negative,
+
+    depvar = FALSE,
+    digits = 3,
+    digits.stats = 3,
+    
+    title = unname(table_titles[[ref]]),
+    label = paste0("tab:ideology_parlgov_", tolower(ref)),
+    
+    headers = c(
+      "Self + Positive",
+      "Self + Negative",
+      "Other + Positive",
+      "Other + Negative"
+    ),
+    
+    dict = c(
+      galtan = "Cultural GAL--TAN (ParlGov)",
+      lrecon = "Economic left--right (ParlGov)",
+      country_code = "Country FE",
+      year = "Year FE"
+    ),
+
+    signif.code = c(
+      "***" = 0.001,
+      "**" = 0.01,
+      "*" = 0.05
+    ),
+    
+    fitstat = ~ n + r2 + wr2,
+    
+    notes = c(
+      "Standard errors clustered by party in parentheses.",
+      "*** $p<0.001$, ** $p<0.01$, * $p<0.05$."
+    )
+  ), format = "pipe")
+  
+  cat("\n", latex, "\n\n", sep = "\n")
+}
+```
+
