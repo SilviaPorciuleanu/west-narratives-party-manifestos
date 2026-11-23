@@ -12,9 +12,9 @@ The files follow the main steps of the analysis:
 - `02_West_Sentences.R` — Prepares the text, identifies sentences mentioning the West and related referents, and checks sentence segmentation.
 - `O3_Actor_identification_and_validation.ipynb` — Identifies referents using an LLM and compares the classifications with manual annotations.
 - `04_Metrics.ipynb` — Compares LLM classifications using accuracy, F1 scores, Cohen's kappa, and processing costs.
-- `06_Final_Annotation.ipynb` — Applies the selected classification approach to the full set of extracted sentences.
-- `07_Variables.R` — Constructs manifesto-level measures and adds party and contextual variables.
-- `10_Analysis_GitHub.Rmd` — Produces descriptive figures and regression analyses of references to the West and their narratives.
+- `05_Final_Annotation.ipynb` — Applies the selected classification approach to the full set of extracted sentences.
+- `06_Variables.R` — Constructs manifesto-level measures and adds party and contextual variables.
+- `07_Analysis_GitHub.Rmd` — Produces descriptive figures and regression analyses of references to the West and their narratives.
 
 ## Data and outputs
 
