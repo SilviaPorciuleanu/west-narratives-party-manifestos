@@ -115,7 +115,7 @@ p_salience_stacked <- ggplot(
 p_salience_stacked
 ```
 
-![](10_Analysis_GitHub_files/figure-gfm/section-1-1.png)<!-- -->
+![](07_Analysis_GitHub_files/figure-gfm/section-1-1.png)<!-- -->
 
 ``` r
 ggsave(
@@ -191,7 +191,7 @@ p_country_elections <- ggplot(
 p_country_elections
 ```
 
-![](10_Analysis_GitHub_files/figure-gfm/section-2-1.png)<!-- -->
+![](07_Analysis_GitHub_files/figure-gfm/section-2-1.png)<!-- -->
 
 ``` r
 ggsave(
@@ -275,7 +275,7 @@ self_other_plot <- Df_west %>%
 self_other_plot
 ```
 
-![](10_Analysis_GitHub_files/figure-gfm/section-3-1.png)<!-- -->
+![](07_Analysis_GitHub_files/figure-gfm/section-3-1.png)<!-- -->
 
 ``` r
 # Positive / Negative graph
@@ -325,7 +325,7 @@ valence_plot <- Df_west %>%
 valence_plot
 ```
 
-![](10_Analysis_GitHub_files/figure-gfm/section-3-2.png)<!-- -->
+![](07_Analysis_GitHub_files/figure-gfm/section-3-2.png)<!-- -->
 
 ``` r
 # Combine plots
@@ -336,7 +336,7 @@ combined_plot <- self_other_plot + valence_plot +
 combined_plot
 ```
 
-![](10_Analysis_GitHub_files/figure-gfm/section-3-3.png)<!-- -->
+![](07_Analysis_GitHub_files/figure-gfm/section-3-3.png)<!-- -->
 
 ``` r
 # Save for Overleaf
@@ -421,7 +421,7 @@ p_self_other <- ggplot(
 p_self_other
 ```
 
-![](10_Analysis_GitHub_files/figure-gfm/section-4-1.png)<!-- -->
+![](07_Analysis_GitHub_files/figure-gfm/section-4-1.png)<!-- -->
 
 ``` r
 valence_by_term <- Df_west %>%
@@ -489,7 +489,7 @@ p_valence <- ggplot(
 p_valence
 ```
 
-![](10_Analysis_GitHub_files/figure-gfm/section-4-2.png)<!-- -->
+![](07_Analysis_GitHub_files/figure-gfm/section-4-2.png)<!-- -->
 
 ``` r
 combined_narratives <- p_self_other / p_valence
@@ -497,7 +497,7 @@ combined_narratives <- p_self_other / p_valence
 combined_narratives
 ```
 
-![](10_Analysis_GitHub_files/figure-gfm/section-4-3.png)<!-- -->
+![](07_Analysis_GitHub_files/figure-gfm/section-4-3.png)<!-- -->
 
 ``` r
 ggsave(
@@ -585,7 +585,7 @@ p_combined <- ggplot(
 p_combined
 ```
 
-![](10_Analysis_GitHub_files/figure-gfm/section-5-1.png)<!-- -->
+![](07_Analysis_GitHub_files/figure-gfm/section-5-1.png)<!-- -->
 
 ``` r
 combined_by_referent <- Df_west %>%
@@ -670,7 +670,7 @@ p_combined_referent <- ggplot(
 p_combined_referent
 ```
 
-![](10_Analysis_GitHub_files/figure-gfm/section-5-2.png)<!-- -->
+![](07_Analysis_GitHub_files/figure-gfm/section-5-2.png)<!-- -->
 
 ``` r
 ggsave(
@@ -1735,7 +1735,7 @@ p_integration <- ggplot(
 p_integration
 ```
 
-![](10_Analysis_GitHub_files/figure-gfm/section-10-1.png)<!-- -->
+![](07_Analysis_GitHub_files/figure-gfm/section-10-1.png)<!-- -->
 
 ``` r
 ggsave(
@@ -1834,7 +1834,7 @@ p_ideology <- ggplot(
 p_ideology
 ```
 
-![](10_Analysis_GitHub_files/figure-gfm/section-10-2.png)<!-- -->
+![](07_Analysis_GitHub_files/figure-gfm/section-10-2.png)<!-- -->
 
 ``` r
 ggsave(
