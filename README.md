@@ -22,4 +22,4 @@ The manifesto texts come from the [Manifesto Project](https://manifesto-project.
 
 The manually annotated and LLM-annotated data are not included in this repository and will be made available upon publication of the paper.
 
-Some scripts require access to the original datasets and API credentials. API keys are not included in the repository, and the annotation notebooks should be checked before enabling any paid API calls.
+Some scripts require access to the original datasets and API credentials. API keys are not included in the repository.
