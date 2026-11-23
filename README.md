@@ -1,6 +1,6 @@
 # Us or “the Other”? Narratives of “the West” in Central and Eastern European Party Rhetoric
 
-This repository contains the code used to analyse how political parties in Central and Eastern Europe refer to the West, Western countries, and Europe in their election manifestos. The code corresponds to the paper *“Us or ‘the Other’? Narratives of ‘the West’ in Central and Eastern European Party Rhetoric”*. The project is part of my PhD research on perspectives of the West in Central and Eastern Europe.
+This repository contains the code used to analyse how political parties in Central and Eastern Europe refer to the West, Western countries, and Europe in their election manifestos. The code corresponds to the paper *“Us or ‘the Other’? Narratives of ‘the West’ in Central and Eastern European Party Rhetoric”*. The project is part of my PhD on perspectives of the West in Central and Eastern Europe.
 
 The analysis combines dictionary-based text extraction, LLM-assisted annotation, manual validation, and quantitative analysis of party manifestos from ten countries.
 
